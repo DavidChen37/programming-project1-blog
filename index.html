@@ -103,7 +103,7 @@ data = glob('./data/**/**/*.png', recursive=True)
 print(len(data))
 Data[-10:]
 									</code></pre>
-								<span class="image"><img src="images/4.jpg" alt="" /></span>
+								<span class="image"><img src="images/4.JPG" alt="" /></span>
 								<p><b id="3">3.</b>	display one sample images<br/>
 									Before starting to build a federated dataset, we can see one sample image. The image_pixel value is defined in the previous section.
 									</p>
@@ -120,7 +120,7 @@ plt.show()
 
 </pre>
 
-									<span class="image"><img src="images/6.jpg" alt="" /></span>
+									<span class="image"><img src="images/6.JPG" alt="" /></span>
 								<p><b id="4">4.</b>	 Define TFRecord helper function<br/>
 									If we load 15000 images directly to the federated dataset, the program will crash because of the memory limit. Therefore, TFRecord is used to load more data for training. The TFRecord format is a simple format for storing a sequence of binary records. If you are not familiar with it, please refer to the starter tutorial here: <a href="https://www.tensorflow.org/tutorials/load_data/tfrecord"target="_blank">https://www.tensorflow.org/tutorials/load_data/tfrecord.</a>
 									
@@ -396,7 +396,7 @@ start_time = time.time()
 data_frame = train(NUM_ROUNDS, noise_multiplier, CLIENTS_PER_ROUND, data_frame)
 </code>
 </pre>
-										<span class="image"><img src="images/21.jpg" alt="" /></span>
+										<span class="image"><img src="images/21.JPG" alt="" /></span>
 									<p>With the 50 clients per round, it can be concluded from the graph that it can tolerate a noise multiplier of up to 2.0 without having any loss on model accuracy. 
 
 										To achieve a better privacy level using the same amount of training time and clients and not causing model quality degradation, 2.0 would be a proper choice for the base noise multiplier. 
@@ -409,8 +409,8 @@ data_frame = train(NUM_ROUNDS, noise_multiplier, CLIENTS_PER_ROUND, data_frame)
 										
 										The final results are shown below, the final noise multiplier is calculated to be 2.6.
 										</p>
-										<span class="image"><img src="images/23.jpg" alt="" /></span>
-										<span class="image"><img src="images/24.jpg" alt="" /></span>
+										<span class="image"><img src="images/23.JPG" alt="" /></span>
+										<span class="image"><img src="images/24.JPG" alt="" /></span>
 										<p>Then, training the model with a noise multiplier of 2.6. The result shows a similar pattern with the one when the model is trained without any noise. This means that the model has achieved a high level of accuracy with the differential privacy applied.
 										</p>
 
