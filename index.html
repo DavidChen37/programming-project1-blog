@@ -1,0 +1,438 @@
+<!DOCTYPE HTML>
+
+<html>
+	<head>
+		<title>Federated Learning with Differential Privacy in TensorFlow</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+	</head>
+	<body class="is-preload">
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Header -->
+					<header id="header" class="alt">
+						<span class="logo"><img src="images/logo.svg" alt="" /></span>
+						<h1>Programming Project 1</h1>
+						<p>External project<br />
+							Mingxuan Zhou, Yi Yang, Zhihao Liang & David Chen
+</p>
+					</header>
+
+				<!-- Nav -->
+					<nav id="nav">
+						<ul>
+							<li><a style="font-weight: bold;" href="#intro" class="active">Intro</a></li>
+							<li><a href="#gs">Preperation</a></li>
+							<li><a href="#1">1</a></li>
+							<li><a href="#2">2</a></li>
+							<li><a href="#3">3</a></li>
+							<li><a href="#4">4</a></li>
+							<li><a href="#5">5</a></li>
+							<li><a href="#6">6</a></li>
+							<li><a href="#7">7</a></li>
+							<li><a href="#8">8</a></li>
+							<li><a href="#9">9</a></li>
+							<li><a href="#10">10</a></li>
+							<li><a href="#11">11</a></li>
+							<li><a href="#12">12</a></li>
+							<li><a href="#13">13</a></li>
+						</ul>
+					</nav>
+
+				<!-- Main -->
+					<div id="main">
+
+						<!-- Introduction -->
+							<section id="intro" class="main">
+								<div class="spotlight"></div>
+									<div class="content">
+										<header class="major">
+											<h2>Federated Learning with Differential Privacy in TensorFlow</h2>
+											<h4 style="font-weight:bold;">Introduction</h4>
+										</header>
+										<p>This blog will demonstrate the detailed steps for the implementation of recommended best practices for training models with user-level Differential Privacy by using Tensorflow Federated. The use of differential privacy learning will reduce the risk of exposing sensitive training data in machine learning. 
+
+											The prerequisite for following this tutorial will require a moderate understanding of TensorFlow and to complete a simple neural network training. If you are not yet familiar with how to train convolutional neural networks, we strongly recommend that you read the relevant <a href="https://www.tensorflow.org/federated/tutorials/federated_learning_for_image_classification" target="_blank">official tutorials</a> before continuing this post.
+											
+											 In this post, you will learn how to train a differentially private model with an approach that relies on Differentially Private Stochastic Gradient Descent (DP-SGD) [Abadi et al.]. The stochastic gradient algorithm is also the basis of many popular optimizers in machine learning. Here, we will use the basic TensorFlow Privacy library to implement DP-SGD which is a modification of the stochastic gradient descent algorithm.
+											</p>
+											<h4 id="gs" style="font-weight:bold;">Before we begin</h4>
+											<p>•	Install required packages and download the dataset 
+												First, let us make sure the notebook is connected to a backend that have the relevant components compiled. For each implementation method , there are some necessary preparatory steps such as getting the dataset ready, pre-processing the data and optionally showing some example images after the pre-process.  The first snippet includes scripts to install the required packages in Google Collab and to download the dataset using a Kaggle API. Here we recommend getting the open source datasets from Kaggle to load the origin database. The link for the example dataset in Kaggle is: <a href="https://www.kaggle.com/paultimothymooney/breast-histopathology-images"target="_blank">https://www.kaggle.com/paultimothymooney/breast-histopathology-images</a>. After downloading the packages, unzip the dataset file and create a directory called “data” to store the images.
+											</p>
+									</div>
+									<pre>
+<code>
+!pip install -U -q kaggle
+!mkdir -p ~/.kaggle
+!echo '{"$username":"username","key":"$key"}' > ~/.kaggle/kaggle.json
+!chmod 600 ~/.kaggle/kaggle.json
+										 
+!kaggle datasets download -d paultimothymooney/breast-histopathology-images
+!mkdir data
+!unzip -q breast-histopathology-images.zip -d ./data
+										</code></pre>
+								
+								<p><b id="1">1.</b>	We will need several imports for the tutorial, this includes the open-source framework for machine learning - tensorflow and other computations on decentralized data.</p>
+								<pre><code>import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+import itertools
+import os, stat, time
+from os.path import dirname as up
+import shutil
+import glob
+from PIL import Image
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+import gc
+									</code></pre>
+								
+							
+								<p><b id="2">2.</b>	Displaying the data size and last ten images from the dataset.<br/>
+									“Glob” is a common use library that can find all the path names matching a specified pattern according to the rules set by the Unix shell. In this snippet script, we annually define the size of images the same as their original sizes and print the number of images. The reason why we let image_pixel to be 50 is that the dataset description mentioned that the breast histopathology image is in size of 50X50.
+									</p>
+								<pre><code>
+from glob import glob
+image_pixel=50
+images_num=15000
+data = glob('./data/**/**/*.png', recursive=True)
+print(len(data))
+Data[-10:]
+									</code></pre>
+								<span class="image"><img src="images/4.jpg" alt="" /></span>
+								<p><b id="3">3.</b>	display one sample images<br/>
+									Before starting to build a federated dataset, we can see one sample image. The image_pixel value is defined in the previous section.
+									</p>
+<pre>
+	<code>
+import cv2
+import matplotlib.pyplot as plt
+for i in data[:1]:
+img=cv2.imread(i)
+img_1=cv2.resize(img,(image_pixel,image_pixel))
+plt.imshow(img_1,cmap='binary')
+plt.show()
+	</code>
+
+</pre>
+
+									<span class="image"><img src="images/6.jpg" alt="" /></span>
+								<p><b id="4">4.</b>	 Define TFRecord helper function<br/>
+									If we load 15000 images directly to the federated dataset, the program will crash because of the memory limit. Therefore, TFRecord is used to load more data for training. The TFRecord format is a simple format for storing a sequence of binary records. If you are not familiar with it, please refer to the starter tutorial here: <a href="https://www.tensorflow.org/tutorials/load_data/tfrecord"target="_blank">https://www.tensorflow.org/tutorials/load_data/tfrecord.</a>
+									
+									The snippet script below presents an encode function that encodes the original dataset to a physical file and a decode function that reads a TFRecord file and returns a TensorFlow dataset. 
+																		</p>
+<pre>
+	<code>
+def encoder(filenames, labels, tfrecord_file):
+    with tf.io.TFRecordWriter(tfrecord_file) as writer:
+        for filename, label in zip(filenames, labels):
+            image = open(filename, 'rb').read()
+ 
+            feature = {
+                # build feature dict       
+                'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image])),
+                'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label]))
+	            }
+	 
+	            # create example through dict
+	            example = tf.train.Example(features=tf.train.Features(feature=feature))
+	            writer.write(example.SerializeToString())
+	def decoder(tfrecord_file):
+	    dataset = tf.data.TFRecordDataset(tfrecord_file)
+	    feature_discription = {
+	        'image': tf.io.FixedLenFeature([], tf.string),
+	        'label': tf.io.FixedLenFeature([], tf.int64)
+	    }
+	 
+	    def _parse_example(example_string): # decode each example
+	        feature_dic = tf.io.parse_single_example(example_string, feature_discription)
+	        feature_dic['image'] = tf.io.decode_png(feature_dic['image'])
+	        feature_dic['image'] = tf.image.resize(feature_dic['image'], [image_pixel, image_pixel])/255
+	        return feature_dic['image'], feature_dic['label']
+	 
+	    dataset = dataset.map(_parse_example)
+	    return dataset
+	</code>
+</pre>
+								<p><b id="5">5.</b>	 Split train dataset and test dataset<br/>
+
+									This step is to split the dataset into two, train dataset and test dataset. A popular machine learning library called scikit-learn will be used. “Train_test_split” returns train images, test images, train labels and test labels. We also deal with class imbalance problems and ensure the labelling ratio of “1” and “0” is 1:1.
+									</p>
+
+<pre>
+	<code>
+from collections import Counter
+labels=[]
+x_filenames=[]
+one_size=0.5
+one_num=int(images_num*one_size) 
+zero_num=int(images_num*(1-one_size)) 
+ 
+one_count=0
+zero_count=0
+	for i in data:
+	    if i.endswith('.png'):
+	        label=int(i[-5])
+	        if images_num == len(labels):
+	            break
+	        if label==1 and one_count==one_num:
+	            continue
+	        if label==0 and zero_count==zero_num:
+	            continue
+	        if label == 1:
+	            one_count+=1
+	        if label == 0:
+	            zero_count+=1
+	        x_filenames.append(i)
+	        labels.append(label)
+	 
+	!mkdir tfrecord
+	train_tfrecord_file='./tfrecord/train.tfrecords'
+	test_tfrecord_file='./tfrecord/test.tfrecords'
+	 
+	train_images_filename,test_images_filename,train_labels_filename,test_labels_filename= \
+	train_test_split(x_filenames,labels,random_state=0,test_size=0.3)
+	print(Counter(labels))
+	</code>
+</pre>
+								<p><b id="6">6.</b>	Build and read TFRecord dataset<br/>
+
+									After Encode and encoding the train data and test data. Now we can get the train images, test images, train labels and test labels.
+									</p>
+<pre>
+	<code>
+encoder(train_images_filename,train_labels_filename,train_tfrecord_file)
+encoder(test_images_filename,test_labels_filename,test_tfrecord_file)
+train_data= decoder(train_tfrecord_file)
+test_data = decoder(test_tfrecord_file)
+ 
+ 
+train_images, train_labels = tuple(zip(*train_data))
+train_images = np.array(train_images)
+train_labels = np.array(train_labels)
+test_images,test_labels= tuple(zip(*test_data))
+test_images = np.array(test_images)
+test_labels = np.array(test_labels)
+		</code>
+</pre>
+								<p><b id="7">7.</b>	We also define variables. NUM_CLIENTS defines the number of clients. NUM_EPOCHS, BATCH_SIZE, SHUFFLE_BUFFER are the pre-processor parameters.</p>
+<pre>
+<code>
+NUM_CLIENTS = 600
+NUM_EPOCHS = 1
+BATCH_SIZE = 16
+SHUFFLE_BUFFER = 209
+</code>
+</pre>	
+								<p><b id="8">8.</b>	Build client data<br/>
+
+									We can finally build our client data. The federated dataset is represented as a list of client ids, and a function to look up the local dataset for each client id. To build a federated dataset from images and labels, we should define clients by ourselves. 
+									“get_client_data_from_dataset” is to receive data, labels and an array of client id and returns a simulated federated dataset. Cross-device federated learning does not require client IDs or perform any tracking of clients. However, in this simulation experiment, we have to use centralized test data.The experimenter may select specific clients to be processed per round. The concept of a client ID is only available at the pre-processing stage where the input data is prepared for the simulation and is not part of the TensorFlow Federated core APIs.
+									</p>
+<pre>
+<code>
+def get_client_data_from_dataset(images,labels,client_num):
+  image_count = len(images)
+  print(image_count)
+  image_per_client = int(np.floor(image_count/client_num))
+  dataset = dict()
+  for i in range(1, client_num+1):
+      client_name = "client_" + str(i)
+      start = image_per_client * (i-1)
+      end = image_per_client * i
+	      dataset[client_name]  = dict((('pixels', images[start:end]),('label', labels[start:end])))
+	  return tff.simulation.datasets.TestClientData(dataset)
+	 
+	train_client_data=get_client_data_from_dataset(train_images,train_labels,NUM_CLIENTS)
+	test_client_data=get_client_data_from_dataset(test_images,test_labels,NUM_CLIENTS)
+</code>
+</pre>	
+								<p><b id="9">9.</b>	Next we define the pre-process dataset function and build an example dataset.<br/>
+									In the snippet script below, we need an example dataset for future input. Each sample is an ordered dict. 
+									</p>
+<pre>
+<code>
+def preprocess(dataset):
+  def batch_format_fn(element):
+    return collections.OrderedDict(
+        x=element['pixels'], y=element['label'])
+  return dataset.map(batch_format_fn).repeat(NUM_EPOCHS).shuffle(SHUFFLE_BUFFER).batch(
+      BATCH_SIZE)
+ 
+example_dataset = train_client_data.create_tf_dataset_for_client(train_client_data.client_ids[0])
+preprocessed_example_dataset = preprocess(example_dataset)
+</code>
+</pre>	
+
+								<p><b id="10">10.</b>	Define a deep learning model generator using TensorFlow<br/>
+
+									Why not just declare a model object? Federated learning is just of the many different kinds of distributed learning. Different devices cannot share the same model instance. So ,when a federated learning process is declared, a deep model generator is required. The model in the script contains three convolutional layers coupled with max pooling layers, a fully-connected layer, and a softmax. 
+								</p>
+								<pre>
+<code>
+def model_fn():
+    model = models.Sequential()
+    model.add(layers.Conv2D(32, (3, 3), activation='relu', input_shape=(image_pixel, image_pixel,3)))
+    model.add(layers.MaxPooling2D((2, 2)))
+    model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+    model.add(layers.MaxPooling2D((2, 2)))
+    model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+    model.add(layers.Flatten())
+    model.add(layers.Dense(64, activation='relu'))
+	    model.add(layers.Dense(2, activation='softmax'))
+	    return tff.learning.from_keras_model(
+	      model,
+	    input_spec=preprocessed_example_dataset.element_spec ,
+	      loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+	      metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
+</code>
+</pre>
+								<p><b id="11">11.</b>	Some helper functions for build federated data and preprocesses test dataset<br/>
+
+
+									The “get_federated_data” is a function to get federated data for specific clients.  While “select_random_clients” is to select client id randomly. A processed test dataset is declared for future testing.
+									</p><pre>
+<code>
+def get_federated_data(client_data, client_ids):
+  return [
+      preprocess(client_data.create_tf_dataset_for_client(x))
+      for x in client_ids
+  ]
+def select_random_clients(client_data,count):
+   return np.random.choice(
+    client_data.client_ids,
+    size=count,
+	    replace=False)
+	tff.backends.native.set_local_python_execution_context(clients_per_thread=5)
+	total_clients = len(train_client_data.client_ids)
+	 
+def preprocess_test_dataset(dataset):
+	  def element_fn(element):
+	    return collections.OrderedDict(
+	        x=element['pixels'], y=element['label'])
+	  return dataset.map(element_fn).batch(BATCH_SIZE, drop_remainder=False)
+processed_test_dataset = preprocess_test_dataset(
+	    test_client_data.create_tf_dataset_from_all_clients())
+	
+</code>
+</pre>
+								<p><b id="12">12.</b>	Training <br/>
+									Different noises should be tried to get user-level DP guarantees. We must change the basic Federated Averaging algorithm in two ways. To start with, the clients’ model updates should be modified before transmission to the server and decrease the influence on any one client. Second, the server should add proper noise to the sum of user updates before the average to cover the worst client influence.
+									
+									The existence of noise will decrease the accuracy of the model, but we can try different noises to find an acceptable noise. The standard deviation of the Gaussian noise added to the sum, and the number of clients in the average will affect the amount of noise in the average update at each round. Our strategy will be finding how much noise the model can tolerate with a small number of clients per round. Then to train the final model, we can increase the amount of noise in the sum, while proportionally scaling up the number of clients per round (assuming the dataset is large enough to support that many clients per round). 
+									</p>
+<pre>
+<code>
+def train(rounds, noise_multiplier, clients_per_round, data_frame):
+ 
+  aggregation_factory = tff.learning.model_update_aggregator.dp_aggregator(
+      noise_multiplier, clients_per_round)
+ 
+  sampling_prob = clients_per_round / total_clients
+ 
+  learning_process = tff.learning.build_federated_averaging_process(
+        model_fn,
+	    client_optimizer_fn=lambda: tf.keras.optimizers.Adam(),
+	    server_optimizer_fn=lambda: tf.keras.optimizers.Adam(),
+	        model_update_aggregation_factory=aggregation_factory)
+	 
+	  eval_process = tff.learning.build_federated_evaluation(model_fn)
+	 
+	 
+	  # Training loop.
+	  # acc=[]
+	  state = learning_process.initialize()
+	  for round_num in range(rounds):
+	 
+	    def select_random_clients_by_poisson_subsampling(client_data,sampling_prob):
+	      count= len(client_data.client_ids)
+	      x = np.random.uniform(size=count)
+	      return [ client_data.client_ids[i] for i in range(count)
+	        if x[i] < sampling_prob]
+	 
+	    sampled_clients=select_random_clients_by_poisson_subsampling(train_client_data,sampling_prob)
+	    sampled_train_data = get_federated_data(train_client_data,sampled_clients)
+	 
+	 
+	    state, metrics = learning_process.next(state, sampled_train_data)
+	    if(round_num % 10 == 0 ):
+	      metrics = eval_process(state.model, [processed_test_dataset])['eval']
+	      print(f'Round {round_num:3d}: {metrics} time: {round((time.time()-start_time)/(round_num+1.))} secs')
+	      data_frame = data_frame.append({'Round': round_num,
+	                                  'NoiseMultiplier': noise_multiplier,
+	                                  **metrics}, ignore_index=True)
+	# print last round
+	  metrics = eval_process(state.model, [processed_test_dataset])['eval']
+	  print(f'Round {round_num:3d}: {metrics} time: {round((time.time()-start_time)/(round_num+1.))} secs')
+	  data_frame = data_frame.append({'Round': round_num,
+	                                'NoiseMultiplier': noise_multiplier,
+	                                **metrics}, ignore_index=True)
+	  # data_frame[noise_multiplier]=acc
+	 
+	  return data_frame
+	
+</code>
+</pre>
+									<p id="13"><b>13.</b>	Noises and results <br/>
+										Test model's noise tolerance and select a base noise multiplier based on the presented results.
+										Firstly, we train the model without noise to get a standard accuracy and loss result by just simply setting the “noise_multipliser” equals to zero.
+										</p>
+<pre>
+<code>
+data_frame = pd.DataFrame()
+NUM_ROUNDS = 100
+import seaborn as sns
+CLIENTS_PER_ROUND= 50
+ 
+# when noise is zero
+noise_multiplier=.0
+print(f'Starting training with noise multiplier: {noise_multiplier}')
+start_time = time.time()
+data_frame = train(NUM_ROUNDS, noise_multiplier, CLIENTS_PER_ROUND, data_frame)
+</code>
+</pre>
+										<span class="image"><img src="images/21.jpg" alt="" /></span>
+									<p>With the 50 clients per round, it can be concluded from the graph that it can tolerate a noise multiplier of up to 2.0 without having any loss on model accuracy. 
+
+										To achieve a better privacy level using the same amount of training time and clients and not causing model quality degradation, 2.0 would be a proper choice for the base noise multiplier. 
+										
+										The next step is to define epsilon and delta values. Those two parameters are used to measure privacy. Epsilon describes how much the probability of a particular output can increase by including a single training example. Usually, epsilon is a small constant, when it is less than 10, privacy can be guaranteed. On the other hand, delta bounds the probability of an arbitrary change in model behavior and it is usually a very small number(e.g. 1e-5) to not interfere with the utility. Therefore, defining epsilon and delta, the target privacy level can be ensured.
+										
+										In our case, with consideration of the performance and tools limitations, the targeted  privacy is set by defining epsilon to 2 and delta to 1e-5.
+										
+										By taking advantage of the analysis based on <a href="https://arxiv.org/abs/1808.00087" target="_blank">Wang et al. (2018)</a> and <a href="https://arxiv.org/pdf/1908.10530.pdf" target="_blank">Mironov et al. (2019)</a>, binary search is utilized to assist with adjusting clients per round dynamically until the target epsilon is exceeded. 
+										
+										The final results are shown below, the final noise multiplier is calculated to be 2.6.
+										</p>
+										<span class="image"><img src="images/23.jpg" alt="" /></span>
+										<span class="image"><img src="images/24.jpg" alt="" /></span>
+										<p>Then, training the model with a noise multiplier of 2.6. The result shows a similar pattern with the one when the model is trained without any noise. This means that the model has achieved a high level of accuracy with the differential privacy applied.
+										</p>
+
+
+							</div>
+							</section>
+
+									<!-- Footer -->
+					<footer id="footer">
+					
+					</footer>
+
+			</div>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+
+	</body>
+</html>
